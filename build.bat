@@ -15,13 +15,10 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/3] exeをビルド中（数分かかります）...
-pyinstaller ^
-    --onefile ^
-    --windowed ^
-    --name "キャッシュフロー管理" ^
-    --add-data "ui;ui" ^
-    main.py
+echo [2/3] exeをビルド中...
+echo ※ このウィンドウに進捗が表示されます。完了まで数分かかります。
+echo.
+pyinstaller --onefile --noconsole --name "キャッシュフロー管理" --add-data "ui;ui" main.py
 
 if errorlevel 1 (
     echo.
