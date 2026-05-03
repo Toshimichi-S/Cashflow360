@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# データベース（個人データなのでGit管理しない）
+data.db
+*.db
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# その他
+.env
+*.log
