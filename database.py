@@ -3,6 +3,31 @@ import os
 from datetime import datetime, date
 from pathlib import Path
 
+import functools
+
+
+class DBError(Exception):
+    """データベース操作エラー"""
+    pass
+
+
+def _db_op(func):
+    """全DB操作関数に適用するエラーハンドリングデコレータ"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except DBError:
+            raise
+        except Exception as e:
+            raise DBError(
+                f"データ操作中にエラーが発生しました\n"
+                f"操作: {func.__name__}\n"
+                f"詳細: {e}"
+            ) from e
+    return wrapper
+
+
 
 DB_PATH = Path.home() / "cashflow_app" / "data.db"
 
@@ -189,6 +214,7 @@ def current_ym():
 
 
 # ── Goals ──────────────────────────────────────────────
+@_db_op
 def get_goal(year_month: str, category: str) -> dict:
     conn = get_connection()
     row = conn.execute(
@@ -201,6 +227,7 @@ def get_goal(year_month: str, category: str) -> dict:
     return {"income_target": 0, "expense_limit": 0, "mrr_target": 0}
 
 
+@_db_op
 def save_goal(year_month: str, category: str, income_target: int,
               expense_limit: int, mrr_target: int = 0):
     conn = get_connection()
@@ -217,6 +244,7 @@ def save_goal(year_month: str, category: str, income_target: int,
     conn.close()
 
 
+@_db_op
 def copy_goal_from_prev(year_month: str, category: str):
     from datetime import datetime
     dt = datetime.strptime(year_month, "%Y-%m")
@@ -232,6 +260,7 @@ def copy_goal_from_prev(year_month: str, category: str):
 
 
 # ── Income Items ──────────────────────────────────────
+@_db_op
 def get_income_items(year_month: str, category: str) -> list:
     conn = get_connection()
     rows = conn.execute(
@@ -242,6 +271,7 @@ def get_income_items(year_month: str, category: str) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_income_item(year_month, category, source, service_type, planned_amount,
                     expected_date="", note=""):
     conn = get_connection()
@@ -254,6 +284,7 @@ def add_income_item(year_month, category, source, service_type, planned_amount,
     conn.close()
 
 
+@_db_op
 def confirm_income(item_id: int, actual_amount: int):
     conn = get_connection()
     conn.execute("""
@@ -265,6 +296,7 @@ def confirm_income(item_id: int, actual_amount: int):
     conn.close()
 
 
+@_db_op
 def delete_income_item(item_id: int):
     conn = get_connection()
     conn.execute("DELETE FROM income_items WHERE id=?", (item_id,))
@@ -273,6 +305,7 @@ def delete_income_item(item_id: int):
 
 
 # ── Fixed Expenses Master ─────────────────────────────
+@_db_op
 def get_fixed_masters(category: str) -> list:
     conn = get_connection()
     rows = conn.execute(
@@ -283,6 +316,7 @@ def get_fixed_masters(category: str) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_fixed_master(category, name, monthly_amount, expense_type="subscription",
                      is_seasonal=0):
     conn = get_connection()
@@ -295,6 +329,7 @@ def add_fixed_master(category, name, monthly_amount, expense_type="subscription"
     conn.close()
 
 
+@_db_op
 def update_fixed_master(master_id, name, monthly_amount, is_seasonal):
     conn = get_connection()
     conn.execute("""
@@ -306,6 +341,7 @@ def update_fixed_master(master_id, name, monthly_amount, is_seasonal):
     conn.close()
 
 
+@_db_op
 def delete_fixed_master(master_id):
     conn = get_connection()
     conn.execute("UPDATE fixed_expenses_master SET is_active=0 WHERE id=?", (master_id,))
@@ -314,6 +350,7 @@ def delete_fixed_master(master_id):
 
 
 # ── Monthly Budget (予実) ─────────────────────────────
+@_db_op
 def get_monthly_budget(year_month: str, category: str) -> list:
     conn = get_connection()
     rows = conn.execute("""
@@ -325,6 +362,7 @@ def get_monthly_budget(year_month: str, category: str) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def ensure_monthly_budget(year_month: str, category: str):
     existing = get_monthly_budget(year_month, category)
     existing_ids = {r["master_id"] for r in existing}
@@ -355,6 +393,7 @@ def ensure_monthly_budget(year_month: str, category: str):
     conn.close()
 
 
+@_db_op
 def update_budget_actual(budget_id: int, actual_amount: int, note: str = ""):
     conn = get_connection()
     conn.execute("""
@@ -365,6 +404,7 @@ def update_budget_actual(budget_id: int, actual_amount: int, note: str = ""):
     conn.close()
 
 
+@_db_op
 def update_budget_target(budget_id: int, budget_amount: int):
     conn = get_connection()
     conn.execute(
@@ -375,6 +415,7 @@ def update_budget_target(budget_id: int, budget_amount: int):
     conn.close()
 
 
+@_db_op
 def add_variable_budget_item(year_month, category, item_name, budget_amount):
     conn = get_connection()
     conn.execute("""
@@ -387,6 +428,7 @@ def add_variable_budget_item(year_month, category, item_name, budget_amount):
 
 
 # ── Extra Expenses (予定外支出) ──────────────────────
+@_db_op
 def get_extra_expenses(year_month: str, category: str) -> list:
     conn = get_connection()
     rows = conn.execute(
@@ -397,6 +439,7 @@ def get_extra_expenses(year_month: str, category: str) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_extra_expense(year_month, category, period, item_name, amount, note=""):
     conn = get_connection()
     conn.execute("""
@@ -408,6 +451,7 @@ def add_extra_expense(year_month, category, period, item_name, amount, note=""):
     conn.close()
 
 
+@_db_op
 def delete_extra_expense(expense_id: int):
     conn = get_connection()
     conn.execute("DELETE FROM extra_expenses WHERE id=?", (expense_id,))
@@ -416,6 +460,7 @@ def delete_extra_expense(expense_id: int):
 
 
 # ── Summary helpers ──────────────────────────────────
+@_db_op
 def get_summary(year_month: str, category: str) -> dict:
     income = get_income_items(year_month, category)
     budget = get_monthly_budget(year_month, category)
@@ -440,6 +485,7 @@ def get_summary(year_month: str, category: str) -> dict:
 
 
 # ── Services ─────────────────────────────────────────
+@_db_op
 def get_services() -> list:
     conn = get_connection()
     rows = conn.execute(
@@ -449,6 +495,7 @@ def get_services() -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_service(name, stype, standard_fee, description=""):
     conn = get_connection()
     conn.execute(
@@ -459,6 +506,7 @@ def add_service(name, stype, standard_fee, description=""):
     conn.close()
 
 
+@_db_op
 def update_service(sid, name, stype, standard_fee, description):
     conn = get_connection()
     conn.execute("""
@@ -470,6 +518,7 @@ def update_service(sid, name, stype, standard_fee, description):
 
 
 # ── Subscription Customers ────────────────────────────
+@_db_op
 def get_customers(active_only=True) -> list:
     conn = get_connection()
     q = """
@@ -485,6 +534,7 @@ def get_customers(active_only=True) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_customer(name, service_id, monthly_fee, billing_day, contract_date="", note=""):
     conn = get_connection()
     conn.execute("""
@@ -496,6 +546,7 @@ def add_customer(name, service_id, monthly_fee, billing_day, contract_date="", n
     conn.close()
 
 
+@_db_op
 def update_customer(cid, name, service_id, monthly_fee, billing_day, note):
     conn = get_connection()
     conn.execute("""
@@ -507,6 +558,7 @@ def update_customer(cid, name, service_id, monthly_fee, billing_day, note):
     conn.close()
 
 
+@_db_op
 def deactivate_customer(cid):
     conn = get_connection()
     conn.execute("UPDATE subscription_customers SET is_active=0 WHERE id=?", (cid,))
@@ -514,6 +566,7 @@ def deactivate_customer(cid):
     conn.close()
 
 
+@_db_op
 def ensure_customer_payments(year_month: str):
     customers = get_customers()
     conn = get_connection()
@@ -527,6 +580,7 @@ def ensure_customer_payments(year_month: str):
     conn.close()
 
 
+@_db_op
 def get_customer_payments(year_month: str) -> list:
     conn = get_connection()
     rows = conn.execute("""
@@ -541,6 +595,7 @@ def get_customer_payments(year_month: str) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def confirm_customer_payment(payment_id: int):
     conn = get_connection()
     conn.execute("""
@@ -552,12 +607,14 @@ def confirm_customer_payment(payment_id: int):
     conn.close()
 
 
+@_db_op
 def get_mrr() -> int:
     customers = get_customers()
     return sum(c["monthly_fee"] for c in customers)
 
 
 # ── Accounts ─────────────────────────────────────────
+@_db_op
 def get_accounts(category: str = None) -> list:
     conn = get_connection()
     if category:
@@ -573,6 +630,7 @@ def get_accounts(category: str = None) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_account(name, category, account_type, balance=0, note=""):
     conn = get_connection()
     conn.execute("""
@@ -583,6 +641,7 @@ def add_account(name, category, account_type, balance=0, note=""):
     conn.close()
 
 
+@_db_op
 def update_account_balance(account_id: int, balance: int):
     conn = get_connection()
     conn.execute("""
@@ -593,6 +652,7 @@ def update_account_balance(account_id: int, balance: int):
     conn.close()
 
 
+@_db_op
 def delete_account(account_id: int):
     conn = get_connection()
     conn.execute("UPDATE accounts SET is_active=0 WHERE id=?", (account_id,))
@@ -600,6 +660,7 @@ def delete_account(account_id: int):
     conn.close()
 
 
+@_db_op
 def get_total_balance(category: str = None) -> int:
     accounts = get_accounts(category)
     return sum(a["balance"] for a in accounts
@@ -607,6 +668,7 @@ def get_total_balance(category: str = None) -> int:
 
 
 # ── Sinking Funds ─────────────────────────────────────
+@_db_op
 def get_sinking_funds(category: str = None) -> list:
     conn = get_connection()
     if category:
@@ -622,6 +684,7 @@ def get_sinking_funds(category: str = None) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_sinking_fund(name, category, annual_budget, target_months="", carry_over=1):
     monthly = annual_budget // 12
     conn = get_connection()
@@ -634,6 +697,7 @@ def add_sinking_fund(name, category, annual_budget, target_months="", carry_over
     conn.close()
 
 
+@_db_op
 def update_sinking_fund(fid, name, category, annual_budget, target_months, carry_over):
     monthly = annual_budget // 12
     conn = get_connection()
@@ -647,6 +711,7 @@ def update_sinking_fund(fid, name, category, annual_budget, target_months, carry
     conn.close()
 
 
+@_db_op
 def delete_sinking_fund(fid):
     conn = get_connection()
     conn.execute("UPDATE sinking_funds SET is_active=0 WHERE id=?", (fid,))
@@ -654,6 +719,7 @@ def delete_sinking_fund(fid):
     conn.close()
 
 
+@_db_op
 def get_sinking_fund_balance(fund_id: int, year_month: str) -> dict:
     conn = get_connection()
     row = conn.execute(
@@ -664,6 +730,7 @@ def get_sinking_fund_balance(fund_id: int, year_month: str) -> dict:
     return dict(row) if row else {"balance": 0, "deposited": 0, "withdrawn": 0}
 
 
+@_db_op
 def update_sinking_fund_balance(fund_id: int, year_month: str,
                                  balance: int, deposited: int = 0, withdrawn: int = 0):
     conn = get_connection()
@@ -682,6 +749,7 @@ def update_sinking_fund_balance(fund_id: int, year_month: str,
 
 
 # ── Memos ─────────────────────────────────────────────
+@_db_op
 def get_memos(done: bool = None) -> list:
     conn = get_connection()
     q = "SELECT * FROM memos"
@@ -695,6 +763,7 @@ def get_memos(done: bool = None) -> list:
     return [dict(r) for r in rows]
 
 
+@_db_op
 def add_memo(title, memo_type, category, amount=0, due_date="", note=""):
     conn = get_connection()
     conn.execute("""
@@ -705,6 +774,7 @@ def add_memo(title, memo_type, category, amount=0, due_date="", note=""):
     conn.close()
 
 
+@_db_op
 def toggle_memo_done(memo_id: int, done: bool):
     conn = get_connection()
     conn.execute("UPDATE memos SET is_done=? WHERE id=?", (1 if done else 0, memo_id))
@@ -712,6 +782,7 @@ def toggle_memo_done(memo_id: int, done: bool):
     conn.close()
 
 
+@_db_op
 def delete_memo(memo_id: int):
     conn = get_connection()
     conn.execute("DELETE FROM memos WHERE id=?", (memo_id,))
