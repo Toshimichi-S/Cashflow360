@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+*.cover
 
 # データベース（個人データなのでGit管理しない）
 data.db
@@ -11,6 +15,25 @@ data.db
 build/
 dist/
 *.spec
+*.exe
+*.dll
+*.msi
+
+# 仮想環境
+venv/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.sublime-workspace
+
+# システムファイル
+.DS_Store
+Thumbs.db
 
 # その他
 .env
