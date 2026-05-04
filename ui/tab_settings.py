@@ -1,22 +1,17 @@
-import shutil
-from datetime import datetime
-
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QDialog, QFormLayout, QLineEdit,
     QSpinBox, QComboBox, QDialogButtonBox, QMessageBox, QCheckBox,
-    QTabWidget, QFileDialog
+    QTabWidget
 )
 from PySide6.QtCore import Qt, Signal
 import database as db
-import encryption as enc
 from style import COLORS
 from ui.widgets.common import make_card, section_label, fmt_yen, badge_label
 
 
 class SettingsTab(QWidget):
     data_changed = Signal()
-    encryption_password_changed = Signal(str)  # パスワード変更時にmainへ通知
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,339 +45,15 @@ class SettingsTab(QWidget):
         svc_tab.changed.connect(self.data_changed)
         inner_tabs.addTab(svc_tab, "サービスマスタ")
 
-        # バックアップ・セキュリティ
-        bs_tab = _BackupSecurityTab()
-        bs_tab.password_changed.connect(self.encryption_password_changed)
-        inner_tabs.addTab(bs_tab, "🔒 バックアップ・セキュリティ")
-
-        self.goal_tab  = goal_tab
+        self.goal_tab = goal_tab
         self.fixed_tab = fixed_tab
-        self.svc_tab   = svc_tab
-        self.bs_tab    = bs_tab
+        self.svc_tab = svc_tab
 
     def refresh(self, year_month: str):
         self.year_month = year_month
         self.goal_tab.refresh(year_month)
         self.fixed_tab.refresh()
         self.svc_tab.refresh()
-        self.bs_tab.refresh()
-
-
-# ── バックアップ・セキュリティタブ ───────────────────
-class _BackupSecurityTab(QWidget):
-    password_changed = Signal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._build()
-
-    def _build(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(16)
-
-        # ── バックアップ ──
-        root.addWidget(section_label("バックアップ"))
-        backup_card = make_card()
-        bvl = QVBoxLayout(backup_card)
-        bvl.setContentsMargins(16, 14, 16, 14)
-        bvl.setSpacing(10)
-
-        note = QLabel(
-            "データベースファイル（data.db）を指定フォルダにコピーします。\n"
-            "バックアップファイル名には日時が自動で付きます。"
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet(f"color:{COLORS['text_sub']};font-size:12px;")
-        bvl.addWidget(note)
-
-        folder_row = QHBoxLayout()
-        self.lbl_folder = QLabel("フォルダ未選択")
-        self.lbl_folder.setStyleSheet(
-            f"color:{COLORS['text_sub']};font-size:12px;"
-            f"background:{COLORS['surface']};padding:4px 8px;border-radius:4px;"
-        )
-        folder_row.addWidget(self.lbl_folder, 1)
-        btn_folder = QPushButton("フォルダを選択")
-        btn_folder.setFixedWidth(120)
-        btn_folder.clicked.connect(self._choose_folder)
-        folder_row.addWidget(btn_folder)
-        bvl.addLayout(folder_row)
-
-        btn_backup = QPushButton("今すぐバックアップ")
-        btn_backup.setObjectName("primary")
-        btn_backup.setFixedHeight(34)
-        btn_backup.clicked.connect(self._do_backup)
-        bvl.addWidget(btn_backup)
-
-        self.lbl_last_backup = QLabel("")
-        self.lbl_last_backup.setStyleSheet(
-            f"color:{COLORS['green_light']};font-size:12px;"
-        )
-        bvl.addWidget(self.lbl_last_backup)
-
-        root.addWidget(backup_card)
-
-        # ── セキュリティ（暗号化） ──
-        root.addWidget(section_label("データベース暗号化"))
-        sec_card = make_card()
-        svl = QVBoxLayout(sec_card)
-        svl.setContentsMargins(16, 14, 16, 14)
-        svl.setSpacing(10)
-
-        self.lbl_enc_status = QLabel("")
-        self.lbl_enc_status.setStyleSheet("font-size:13px;font-weight:bold;")
-        svl.addWidget(self.lbl_enc_status)
-
-        enc_note = QLabel(
-            "暗号化を有効にすると、アプリ起動時にパスワードが必要になります。\n"
-            "⚠️ パスワードを忘れるとデータを復元できません。必ずメモしてください。"
-        )
-        enc_note.setWordWrap(True)
-        enc_note.setStyleSheet(f"color:{COLORS['text_sub']};font-size:12px;")
-        svl.addWidget(enc_note)
-
-        btn_row = QHBoxLayout()
-        self.btn_enc_toggle = QPushButton("")
-        self.btn_enc_toggle.setFixedWidth(160)
-        self.btn_enc_toggle.clicked.connect(self._toggle_encryption)
-        btn_row.addWidget(self.btn_enc_toggle)
-
-        self.btn_change_pw = QPushButton("パスワード変更")
-        self.btn_change_pw.setFixedWidth(130)
-        self.btn_change_pw.clicked.connect(self._change_password)
-        btn_row.addWidget(self.btn_change_pw)
-        btn_row.addStretch()
-        svl.addLayout(btn_row)
-
-        root.addWidget(sec_card)
-        root.addStretch()
-
-        self._backup_folder = ""
-
-    def refresh(self):
-        self._update_enc_ui()
-
-    def _update_enc_ui(self):
-        if enc.is_enabled():
-            self.lbl_enc_status.setText("🔒 暗号化：有効")
-            self.lbl_enc_status.setStyleSheet(
-                f"font-size:13px;font-weight:bold;color:{COLORS['green_light']};"
-            )
-            self.btn_enc_toggle.setText("暗号化を無効にする")
-            self.btn_enc_toggle.setObjectName("danger")
-            self.btn_change_pw.setEnabled(True)
-        else:
-            self.lbl_enc_status.setText("🔓 暗号化：無効")
-            self.lbl_enc_status.setStyleSheet(
-                f"font-size:13px;font-weight:bold;color:{COLORS['text_sub']};"
-            )
-            self.btn_enc_toggle.setText("暗号化を有効にする")
-            self.btn_enc_toggle.setObjectName("")
-            self.btn_change_pw.setEnabled(False)
-
-    def _choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "バックアップ先フォルダを選択")
-        if folder:
-            self._backup_folder = folder
-            self.lbl_folder.setText(folder)
-
-    def _do_backup(self):
-        if not self._backup_folder:
-            QMessageBox.warning(self, "フォルダ未選択",
-                                "バックアップ先フォルダを選択してください。")
-            return
-        if not db.DB_PATH.exists():
-            QMessageBox.warning(self, "DBなし",
-                                "データベースファイルが見つかりません。")
-            return
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dest = f"{self._backup_folder}/cashflow_backup_{timestamp}.db"
-        try:
-            shutil.copy2(db.DB_PATH, dest)
-            self.lbl_last_backup.setText(f"✅ バックアップ完了: {dest}")
-        except Exception as e:
-            QMessageBox.critical(self, "バックアップ失敗", str(e))
-
-    def _toggle_encryption(self):
-        if enc.is_enabled():
-            self._disable_encryption()
-        else:
-            self._enable_encryption()
-        self._update_enc_ui()
-
-    def _enable_encryption(self):
-        if not enc.is_available():
-            QMessageBox.warning(
-                self, "ライブラリ不足",
-                "cryptographyライブラリが必要です。\n"
-                "PowerShellで以下を実行してください:\n\n"
-                "pip install cryptography"
-            )
-            return
-        dlg = _SetPasswordDialog("暗号化を有効にする", self)
-        if not dlg.exec():
-            return
-        pw = dlg.password
-        try:
-            enc.setup(db.DB_PATH, pw)
-            self.password_changed.emit(pw)
-            QMessageBox.information(
-                self, "完了",
-                "暗号化を有効にしました。\n次回起動からパスワードが必要になります。"
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "エラー", f"暗号化に失敗しました:\n{e}")
-
-    def _disable_encryption(self):
-        dlg = _VerifyPasswordDialog("暗号化を無効にする", self)
-        if not dlg.exec():
-            return
-        pw = dlg.password
-        try:
-            if enc.disable(db.DB_PATH, pw):
-                self.password_changed.emit("")
-                QMessageBox.information(
-                    self, "完了",
-                    "暗号化を無効にしました。\n次回起動からパスワードは不要です。"
-                )
-            else:
-                QMessageBox.warning(self, "エラー", "パスワードが違います。")
-        except Exception as e:
-            QMessageBox.critical(self, "エラー", f"失敗しました:\n{e}")
-
-    def _change_password(self):
-        dlg = _ChangePasswordDialog(self)
-        if not dlg.exec():
-            return
-        old_pw, new_pw = dlg.old_password, dlg.new_password
-        try:
-            if enc.change_password(db.DB_PATH, old_pw, new_pw):
-                self.password_changed.emit(new_pw)
-                QMessageBox.information(self, "完了", "パスワードを変更しました。")
-            else:
-                QMessageBox.warning(self, "エラー", "現在のパスワードが違います。")
-        except Exception as e:
-            QMessageBox.critical(self, "エラー", f"失敗しました:\n{e}")
-
-
-# ── パスワードダイアログ群 ───────────────────────────
-class _SetPasswordDialog(QDialog):
-    def __init__(self, title: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setMinimumWidth(340)
-        self._password = None
-        layout = QFormLayout(self)
-        layout.setSpacing(10)
-
-        self.pw1 = QLineEdit()
-        self.pw1.setEchoMode(QLineEdit.Password)
-        layout.addRow("新しいパスワード *", self.pw1)
-
-        self.pw2 = QLineEdit()
-        self.pw2.setEchoMode(QLineEdit.Password)
-        layout.addRow("確認（再入力） *", self.pw2)
-
-        warn = QLabel("⚠️ パスワードを忘れるとデータを復元できません。")
-        warn.setStyleSheet(f"color:{COLORS['amber_light']};font-size:11px;")
-        warn.setWordWrap(True)
-        layout.addRow(warn)
-
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self._save)
-        btns.rejected.connect(self.reject)
-        layout.addRow(btns)
-
-    def _save(self):
-        if not self.pw1.text():
-            QMessageBox.warning(self, "エラー", "パスワードを入力してください。")
-            return
-        if self.pw1.text() != self.pw2.text():
-            QMessageBox.warning(self, "エラー", "パスワードが一致しません。")
-            return
-        if len(self.pw1.text()) < 4:
-            QMessageBox.warning(self, "エラー", "パスワードは4文字以上にしてください。")
-            return
-        self._password = self.pw1.text()
-        self.accept()
-
-    @property
-    def password(self):
-        return self._password
-
-
-class _VerifyPasswordDialog(QDialog):
-    def __init__(self, title: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setMinimumWidth(300)
-        self._password = None
-        layout = QFormLayout(self)
-        layout.setSpacing(10)
-        self.pw = QLineEdit()
-        self.pw.setEchoMode(QLineEdit.Password)
-        layout.addRow("現在のパスワード *", self.pw)
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self._save)
-        btns.rejected.connect(self.reject)
-        layout.addRow(btns)
-
-    def _save(self):
-        if not self.pw.text():
-            QMessageBox.warning(self, "エラー", "パスワードを入力してください。")
-            return
-        self._password = self.pw.text()
-        self.accept()
-
-    @property
-    def password(self):
-        return self._password
-
-
-class _ChangePasswordDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("パスワード変更")
-        self.setMinimumWidth(340)
-        self._old = self._new = None
-        layout = QFormLayout(self)
-        layout.setSpacing(10)
-        self.old_pw = QLineEdit()
-        self.old_pw.setEchoMode(QLineEdit.Password)
-        layout.addRow("現在のパスワード *", self.old_pw)
-        self.new_pw1 = QLineEdit()
-        self.new_pw1.setEchoMode(QLineEdit.Password)
-        layout.addRow("新しいパスワード *", self.new_pw1)
-        self.new_pw2 = QLineEdit()
-        self.new_pw2.setEchoMode(QLineEdit.Password)
-        layout.addRow("確認（再入力） *", self.new_pw2)
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self._save)
-        btns.rejected.connect(self.reject)
-        layout.addRow(btns)
-
-    def _save(self):
-        if not self.old_pw.text() or not self.new_pw1.text():
-            QMessageBox.warning(self, "エラー", "全項目を入力してください。")
-            return
-        if self.new_pw1.text() != self.new_pw2.text():
-            QMessageBox.warning(self, "エラー", "新しいパスワードが一致しません。")
-            return
-        if len(self.new_pw1.text()) < 4:
-            QMessageBox.warning(self, "エラー", "パスワードは4文字以上にしてください。")
-            return
-        self._old = self.old_pw.text()
-        self._new = self.new_pw1.text()
-        self.accept()
-
-    @property
-    def old_password(self):
-        return self._old
-
-    @property
-    def new_password(self):
-        return self._new
 
 
 # ── 目標設定タブ ─────────────────────────────────────
@@ -649,8 +320,14 @@ class FixedMasterDialog(QDialog):
         self.amount = QSpinBox()
         self.amount.setRange(0, 9999999)
         self.amount.setSingleStep(500)
-        self.amount.setSuffix(" 円/月")
-        layout.addRow("月額目標 *", self.amount)
+        amount_row = QHBoxLayout()
+        amount_row.setSpacing(6)
+        amount_row.addWidget(self.amount)
+        unit_lbl = QLabel("円/月")
+        unit_lbl.setStyleSheet(f"color:{COLORS['text_sub']};background:transparent;")
+        amount_row.addWidget(unit_lbl)
+        amount_row.addStretch()
+        layout.addRow("月額目標 *", amount_row)
 
         self.is_seasonal = QCheckBox("季節によって変動する（毎月手動で調整可能にする）")
         layout.addRow("", self.is_seasonal)
