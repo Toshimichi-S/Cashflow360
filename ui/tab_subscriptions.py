@@ -83,9 +83,9 @@ class SubscriptionsTab(QWidget):
         db.ensure_customer_payments(year_month)
 
         customers = db.get_customers()
-        payments = db.get_customer_payments(year_month)
-        mrr = sum(c["monthly_fee"] for c in customers)
-        pending = [p for p in payments if p["status"] == "pending"]
+        payments  = db.get_customer_payments(year_month)
+        mrr       = sum(c["monthly_fee"] for c in customers)
+        pending   = [p for p in payments if p["status"] == "pending"]
 
         self.mc_mrr.update(fmt_yen(mrr))
         self.mc_count.update(f"{len(customers)} 社")
@@ -111,7 +111,7 @@ class SubscriptionsTab(QWidget):
 
         for p in payments:
             row = _PaymentRow(p)
-            row.confirmed.connect(lambda: self.refresh(self.year_month))
+            row.changed.connect(lambda: self.refresh(self.year_month))
             self.pay_layout.addWidget(row)
 
     def _refresh_customers(self, customers):
@@ -184,42 +184,70 @@ class SubscriptionsTab(QWidget):
             self.data_changed.emit()
 
 
+# ── 入金確認行 ────────────────────────────────────────────
 class _PaymentRow(QWidget):
-    confirmed = Signal()
+    changed = Signal()   # 確認・取消どちらでも発火
 
     def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         self.data = data
-        self.setFixedHeight(44)
+        self.setFixedHeight(48)
+
+        is_confirmed = data["status"] == "confirmed"
         self.setStyleSheet(
-            f"border-bottom:1px solid {COLORS['border']};background:transparent;"
+            f"border-bottom:1px solid {COLORS['border']};"
+            f"background:{'rgba(42,53,32,0.4)' if is_confirmed else 'transparent'};"
         )
+
         hl = QHBoxLayout(self)
-        hl.setContentsMargins(8, 4, 8, 4)
+        hl.setContentsMargins(10, 4, 10, 4)
         hl.setSpacing(8)
 
+        # サービスバッジ
         svc_colors = {
-            "subscription": (COLORS["teal_bg"], COLORS["teal"]),
-            "consulting":   (COLORS["amber_bg"], COLORS["amber_light"]),
-            "project":      (COLORS["coral_bg"], COLORS["coral"]),
+            "subscription": (COLORS["teal_bg"],   COLORS["teal"]),
+            "consulting":   (COLORS["amber_bg"],   COLORS["amber_light"]),
+            "project":      (COLORS["coral_bg"],   COLORS["coral"]),
         }
         stype = data.get("service_type", "subscription")
         bg, fg = svc_colors.get(stype, (COLORS["surface"], COLORS["text_sub"]))
         hl.addWidget(badge_label(data.get("service_name", ""), bg, fg))
 
+        # 顧客名
         lb = QLabel(data["customer_name"])
         lb.setMinimumWidth(160)
         hl.addWidget(lb, 1)
 
+        # 金額
         amt = QLabel(fmt_yen(data["amount"]))
         amt.setFixedWidth(90)
         amt.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        amt.setStyleSheet(f"color:{COLORS['text']};background:transparent;border:none;")
+        amt.setStyleSheet(
+            f"color:{COLORS['text']};font-weight:bold;background:transparent;border:none;"
+        )
         hl.addWidget(amt)
 
-        if data["status"] == "confirmed":
+        if is_confirmed:
+            # 確認済バッジ
             hl.addWidget(badge_label("確認済", COLORS["green_bg"], COLORS["green_light"]))
+
+            # 確認日
+            date_lb = QLabel(data.get("confirmed_date", "") or "")
+            date_lb.setStyleSheet(
+                f"color:{COLORS['text_dim']};font-size:11px;background:transparent;border:none;"
+            )
+            date_lb.setFixedWidth(70)
+            hl.addWidget(date_lb)
+
+            # 取消ボタン
+            btn_reset = QPushButton("取消")
+            btn_reset.setFixedWidth(54)
+            btn_reset.setObjectName("danger")
+            btn_reset.setToolTip("未確認状態に戻す")
+            btn_reset.clicked.connect(self._reset)
+            hl.addWidget(btn_reset)
         else:
+            # 入金確認ボタン
             btn = QPushButton("入金確認 ✓")
             btn.setObjectName("success")
             btn.setFixedWidth(90)
@@ -228,11 +256,22 @@ class _PaymentRow(QWidget):
 
     def _confirm(self):
         db.confirm_customer_payment(self.data["id"])
-        self.confirmed.emit()
+        self.changed.emit()
+
+    def _reset(self):
+        reply = QMessageBox.question(
+            self, "確認",
+            f"「{self.data['customer_name']}」の入金確認を取り消しますか？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            db.reset_customer_payment(self.data["id"])
+            self.changed.emit()
 
 
+# ── 顧客一覧行 ────────────────────────────────────────────
 class _CustomerRow(QWidget):
-    edit_requested = Signal(int)
+    edit_requested   = Signal(int)
     delete_requested = Signal(int)
 
     def __init__(self, data: dict, parent=None):
@@ -251,8 +290,8 @@ class _CustomerRow(QWidget):
         hl.addWidget(lb, 1)
 
         svc_colors = {
-            "subscription": (COLORS["teal_bg"], COLORS["teal"]),
-            "consulting":   (COLORS["amber_bg"], COLORS["amber_light"]),
+            "subscription": (COLORS["teal_bg"],   COLORS["teal"]),
+            "consulting":   (COLORS["amber_bg"],   COLORS["amber_light"]),
         }
         bg, fg = svc_colors.get(
             data.get("service_type", ""), (COLORS["surface"], COLORS["text_sub"])
@@ -264,12 +303,16 @@ class _CustomerRow(QWidget):
         lb_amt = QLabel(fmt_yen(data["monthly_fee"]))
         lb_amt.setFixedWidth(90)
         lb_amt.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lb_amt.setStyleSheet(f"color:{COLORS['text']};background:transparent;border:none;")
+        lb_amt.setStyleSheet(
+            f"color:{COLORS['text']};background:transparent;border:none;"
+        )
         hl.addWidget(lb_amt)
 
         lb_day = QLabel(data.get("billing_day", ""))
         lb_day.setFixedWidth(80)
-        lb_day.setStyleSheet(f"color:{COLORS['text_sub']};background:transparent;border:none;")
+        lb_day.setStyleSheet(
+            f"color:{COLORS['text_sub']};background:transparent;border:none;"
+        )
         hl.addWidget(lb_day)
 
         btn_edit = QPushButton("編集")
@@ -284,6 +327,7 @@ class _CustomerRow(QWidget):
         hl.addWidget(btn_del)
 
 
+# ── 顧客ダイアログ ────────────────────────────────────────
 class CustomerDialog(QDialog):
     def __init__(self, data: dict = None, parent=None):
         super().__init__(parent)
@@ -312,7 +356,7 @@ class CustomerDialog(QDialog):
         self.fee.setSingleStep(1000)
         _w = QWidget()
         _hl = QHBoxLayout(_w)
-        _hl.setContentsMargins(0,0,0,0)
+        _hl.setContentsMargins(0, 0, 0, 0)
         _hl.setSpacing(6)
         _hl.addWidget(self.fee)
         _hl.addWidget(QLabel("円/月"))

@@ -608,6 +608,18 @@ def confirm_customer_payment(payment_id: int):
 
 
 @_db_op
+def reset_customer_payment(payment_id: int):
+    """入金確認を取り消して未確認状態に戻す"""
+    conn = get_connection()
+    conn.execute("""
+        UPDATE customer_payments SET status='pending', confirmed_date=''
+        WHERE id=?
+    """, (payment_id,))
+    conn.commit()
+    conn.close()
+
+
+@_db_op
 def get_mrr() -> int:
     customers = get_customers()
     return sum(c["monthly_fee"] for c in customers)
